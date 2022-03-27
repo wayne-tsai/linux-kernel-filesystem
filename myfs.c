@@ -9,7 +9,7 @@
  
 MODULE_LICENSE("GPL");
  
-#define MYFS_MAGIC 0x20210607
+#define MYFS_MAGIC 0x20220327
  
  
 static struct inode *myfs_make_inode(struct super_block *sb, int mode)
