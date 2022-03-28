@@ -10,17 +10,20 @@
 MODULE_LICENSE("GPL");
  
 #define MYFS_MAGIC 0x20220327
- 
- 
+#define PAGE_CACHE_SIZE PAGE_SIZE
+#define PAGE_CACHE_SHIFT PAGE_SHIFT 
+// #define CURRENT_TIME (current_time()) // current_kernel_time()
+
 static struct inode *myfs_make_inode(struct super_block *sb, int mode)
 {
         struct inode *ret = new_inode(sb);
  
         if (ret) {
                 ret->i_mode = mode;
-                ret->i_uid = ret->i_gid = 0;
+                //ret->i_uid = current->cred->fsuid; // 0
+		//ret->i_gid = current->cred->fsgid; // 0
                 ret->i_blocks = 0;
-                ret->i_atime = ret->i_mtime = ret->i_ctime = CURRENT_TIME;
+                ret->i_atime = ret->i_mtime = ret->i_ctime = current_time(ret);
         }
         return ret;
 }
@@ -91,10 +94,11 @@ static struct dentry *myfs_create_file (struct super_block *sb,
         struct dentry *dentry;
         struct inode *inode;
         struct qstr qname;
+	char salt[] = "this is my salt";
  
         qname.name = name;
         qname.len = strlen (name);
-        qname.hash = full_name_hash(name, qname.len);
+        qname.hash = full_name_hash(salt, name, qname.len);
  
         dentry = d_alloc(dir, &qname);
         if (! dentry)
@@ -121,10 +125,11 @@ static struct dentry *myfs_create_dir (struct super_block *sb,
         struct dentry *dentry;
         struct inode *inode;
         struct qstr qname;
+	char salt[] = "this is my salt";
  
         qname.name = name;
         qname.len = strlen (name);
-        qname.hash = full_name_hash(name, qname.len);
+        qname.hash = full_name_hash(salt, name, qname.len);
         dentry = d_alloc(parent, &qname);
         if (! dentry)
                 goto out;
@@ -183,7 +188,7 @@ static int myfs_fill_super (struct super_block *sb, void *data, int silent)
         root->i_op = &simple_dir_inode_operations;
         root->i_fop = &simple_dir_operations;
  
-        root_dentry = d_alloc_root(root);
+        root_dentry = d_make_root(root); // d_alloc_root(root)
         if (! root_dentry)
                 goto out_iput;
         sb->s_root = root_dentry;
