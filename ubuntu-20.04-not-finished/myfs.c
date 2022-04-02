@@ -9,20 +9,21 @@
  
 MODULE_LICENSE("GPL");
  
-#define MYFS_MAGIC 0x20220401
+#define MYFS_MAGIC 0x20220327
+#define PAGE_CACHE_SIZE PAGE_SIZE
+#define PAGE_CACHE_SHIFT PAGE_SHIFT 
+// #define CURRENT_TIME (current_time()) // current_kernel_time()
 
-static atomic_t counter_a, counter_b;
-static atomic_t counter_c, counter_d;
- 
 static struct inode *myfs_make_inode(struct super_block *sb, int mode)
 {
         struct inode *ret = new_inode(sb);
  
         if (ret) {
                 ret->i_mode = mode;
-                ret->i_uid = ret->i_gid = 0;
+                //ret->i_uid = current->cred->fsuid; // 0
+		//ret->i_gid = current->cred->fsgid; // 0
                 ret->i_blocks = 0;
-                ret->i_atime = ret->i_mtime = ret->i_ctime = CURRENT_TIME;
+                ret->i_atime = ret->i_mtime = ret->i_ctime = current_time(ret);
         }
         return ret;
 }
@@ -41,18 +42,12 @@ static ssize_t myfs_read_file(struct file *filp, char *buf,
         atomic_t *counter = (atomic_t *) filp->private_data;
         int v, len;
         char tmp[TMPSIZE];
-	char* add = "add";
-	char* sub = "sub";
-	if(strcmp(filp->f_path.dentry->d_iname,add)==0)
-		v = atomic_read(&counter_a) + atomic_read(&counter_b);
-	else if (strcmp(filp->f_path.dentry->d_iname,sub)==0)
-		v = atomic_read(&counter_a) - atomic_read(&counter_b);
- 	else
-        	v = atomic_read(counter);
+ 
+        v = atomic_read(counter);
         if (*offset > 0)
                 v -= 1;  /* the value returned when offset was zero */
         else
-                ; //atomic_inc(counter);
+                atomic_inc(counter);
         len = snprintf(tmp, TMPSIZE, "%d\n", v);
         if (*offset > len)
                 return 0;
@@ -99,15 +94,16 @@ static struct dentry *myfs_create_file (struct super_block *sb,
         struct dentry *dentry;
         struct inode *inode;
         struct qstr qname;
+	char salt[] = "this is my salt";
  
         qname.name = name;
         qname.len = strlen (name);
-        qname.hash = full_name_hash(name, qname.len);
+        qname.hash = full_name_hash(salt, name, qname.len);
  
         dentry = d_alloc(dir, &qname);
         if (! dentry)
                 goto out;
-        inode = myfs_make_inode(sb, S_IFREG | 0755);
+        inode = myfs_make_inode(sb, S_IFREG | 0644);
         if (! inode)
                 goto out_dput;
         inode->i_fop = &myfs_file_ops;
@@ -129,15 +125,16 @@ static struct dentry *myfs_create_dir (struct super_block *sb,
         struct dentry *dentry;
         struct inode *inode;
         struct qstr qname;
+	char salt[] = "this is my salt";
  
         qname.name = name;
         qname.len = strlen (name);
-        qname.hash = full_name_hash(name, qname.len);
+        qname.hash = full_name_hash(salt, name, qname.len);
         dentry = d_alloc(parent, &qname);
         if (! dentry)
                 goto out;
  
-        inode = myfs_make_inode(sb, S_IFDIR | 0755);
+        inode = myfs_make_inode(sb, S_IFDIR | 0644);
         if (! inode)
                 goto out_dput;
         inode->i_op = &simple_dir_inode_operations;
@@ -152,29 +149,20 @@ static struct dentry *myfs_create_dir (struct super_block *sb,
         return 0;
 }
  
+ 
+static atomic_t counter, subcounter;
+ 
 static void myfs_create_files (struct super_block *sb, struct dentry *root)
 {
-        struct dentry *input;
-        struct dentry *output;
+        struct dentry *subdir;
  
-        atomic_set(&counter_a, 0);
-        atomic_set(&counter_b, 0);
-        atomic_set(&counter_c, 0);
-        atomic_set(&counter_d, 0);
-
-        input = myfs_create_dir(sb, root, "input");
-	if(input)
-	{
-        	myfs_create_file(sb, input, "a", &counter_a);
-        	myfs_create_file(sb, input, "b", &counter_b);
-	}
-        output = myfs_create_dir(sb, root, "output");
-	if(output)
-	{
-        	myfs_create_file(sb, output, "add", &counter_c);
-        	myfs_create_file(sb, output, "sub", &counter_d);
-	}
+        atomic_set(&counter, 0);
+        myfs_create_file(sb, root, "counter", &counter);
  
+        atomic_set(&subcounter, 0);
+        subdir = myfs_create_dir(sb, root, "subdir");
+        if (subdir)
+                myfs_create_file(sb, subdir, "subcounter", &subcounter);
 }
  
  
@@ -200,7 +188,7 @@ static int myfs_fill_super (struct super_block *sb, void *data, int silent)
         root->i_op = &simple_dir_inode_operations;
         root->i_fop = &simple_dir_operations;
  
-        root_dentry = d_alloc_root(root);
+        root_dentry = d_make_root(root); // d_alloc_root(root)
         if (! root_dentry)
                 goto out_iput;
         sb->s_root = root_dentry;
